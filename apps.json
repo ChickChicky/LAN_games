@@ -1,0 +1,7 @@
+[
+    {
+        "name": "Tic Tac Toe",
+        "roomSize": "2",
+        "path": "apps/tictactoe.js"
+    }
+]
