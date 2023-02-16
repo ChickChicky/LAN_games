@@ -3,5 +3,10 @@
         "name": "Tic Tac Toe",
         "roomSize": "2",
         "path": "apps/tictactoe.js"
+    },
+    {
+        "name": "Connect Four",
+        "roomSize": "2",
+        "path": "apps/connect-four.js"
     }
 ]

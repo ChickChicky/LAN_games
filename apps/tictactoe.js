@@ -122,7 +122,6 @@ function runClient( addr, cb=()=>null ) {
             ({board,w:winner,player} = d);
             render(winner);
             if (winner != undefined) {
-                render(winner);
                 console.log(['\x1b[31mPlayer 1','\x1b[34mPlayer 2','\x1b[90mNobody'][winner] + '\x1b[39m won'+(winner==2?'.':' !'));
                 process.exit();
             }
@@ -138,11 +137,6 @@ function runClient( addr, cb=()=>null ) {
         while (true) {
             render(winner);
             let k = await getch();
-            if (k == null) {
-                render(winner);
-                console.log('E');
-                process.exit();
-            }
             if (k == '\x1b[A') selected = mod(selected-3,9);
             if (k == '\x1b[B') selected = mod(selected+3,9);
             if (k == '\x1b[C') selected = mod(selected+1,9);
