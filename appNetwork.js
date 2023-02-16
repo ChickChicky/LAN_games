@@ -64,7 +64,7 @@ class App {
             data
         });
         let dh = hash(d);
-        this.client.write(d);
+        this.client.write(d+'\x17');
         if (this.requests.find(r=>r.name==name).requiresResponse) {
             return new Promise(r=>{
                 let i = setInterval(()=>{
@@ -87,24 +87,27 @@ class Server {
         this.requests = [];
         this.clients = [];
         this.connectionListener = null;
+        this.disconnectionListener = null;
         this.server = net.createServer(
             async s => {
                 this.clients.push(s);
                 let r = await (this.connectionListener??(()=>undefined)).call(this,s);
                 if (!r) {
-                    s.on('data',async(d)=>{
-                        let dh = hash(d);
-                        let jd = JSON.parse(d);
-                        if (jd.type == 'request') {
-                            let h = this.requests.find(r=>r.name==jd.name);
-                            if (h) {
-                                let r = await h.callback(jd.data,s);
-                                if (h.requiresResponse) {
-                                    s.write(JSON.stringify({
-                                        type : 'request_response',
-                                        data : r,
-                                        id : dh
-                                    })+'\x17');
+                    s.on('data',async rd => { rd = rd.toString('utf-8');
+                        for (let d of rd.split('\x17')) if (d.length) {
+                            let dh = hash(d);
+                            let jd = JSON.parse(d);
+                            if (jd.type == 'request') {
+                                let h = this.requests.find(r=>r.name==jd.name);
+                                if (h) {
+                                    let r = await h.callback(jd.data,s);
+                                    if (h.requiresResponse) {
+                                        s.write(JSON.stringify({
+                                            type : 'request_response',
+                                            data : r,
+                                            id : dh
+                                        })+'\x17');
+                                    }
                                 }
                             }
                         }
@@ -114,6 +117,7 @@ class Server {
                     });
                     s.on('close',()=>{
                         this.clients = this.clients.filter(c=>c!=s);
+                        if (typeof this.disconnectionListener == 'function') this.disconnectionListener(s);
                     });
                 } else {
                     s.write(JSON.stringify({
@@ -139,6 +143,16 @@ class Server {
      */
     onConnection(l) {
         this.connectionListener = l;
+        return this;
+    }
+
+    /**
+     * Registers a callback for when a user is disconnected
+     * @param {(s:net.Socekt)=>void} l
+     * @returns {Server}
+     */
+    onDisconnect(l) {
+        this.disconnectionListener = l;
         return this;
     }
 
