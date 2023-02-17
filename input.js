@@ -11,6 +11,37 @@ const Key = {
                               r: '\x12', s: '\x13', 
         t: '\x14', u: '\x15', v: '\x16', w: '\x17', 
         x: '\x18', y: '\x19', z: '\x1a',
+
+        '@':  '\x00', '`': '\x00', '[': '\x1b', '{': '\x1b', 
+        '\\': '\x1c', '|': '\x1c', ']': '\x1d', '}': '\x1d',
+        '^':  '\x1e', '~': '\x1e', '_': '\x1f', '?': '\x7f',
+
+        'up': '\x1b[1;5A',    'down': '\x1b[1;5B',
+        'right': '\x1b[1;5C', 'left': '\x1b[1;5D',
+
+        'home': '\x1b[1;5~',   'end': '\x1b[4;5~',
+        'pageup': '\x1b[5;5~', 'pagedown': '\x1b[6;5~',
+        'insert': '\x1b[2;5~', 'delete': '\x1b[3;5~',
+    },
+
+    // bindings for shift+KEY
+    shift: {
+        'up': '\x1b[1;2A',    'down': '\x1b[1;2B',
+        'right': '\x1b[1;2C', 'left': '\x1b[1;2D',
+
+        'home':   '\x1b[1;2~', 'end':      '\x1b[4;2~',
+        'pageup': '\x1b[5;2~', 'pagedown': '\x1b[6;2~',
+        'insert': '\x1b[2;2~', 'delete':   '\x1b[3;2~',
+    },
+
+    // bindings for ctrl+shift+KEY
+    ctrl_shift: {
+        'up':    '\x1b[1;6A', 'down': '\x1b[1;6B',
+        'right': '\x1b[1;6C', 'left': '\x1b[1;6D',
+
+        'home':   '\x1b[1;6~', 'end':      '\x1b[4;6~',
+        'pageup': '\x1b[5;6~', 'pagedown': '\x1b[6;6~',
+        'insert': '\x1b[2;6~', 'delete':   '\x1b[3;6~',
     },
 
     a: 'a', b: 'b', c: 'c', d: 'd', e: 'e',
@@ -40,17 +71,18 @@ const Key = {
     delete: '\x1b[3~', del: '\x1b[3~',
     up: '\x1b[A', down: '\x1b[B', left: '\x1b[D', right: '\x1b[C',
     home: '\x1b[1~', end: '\x1b[4~',
-    enter: '\r'
+    enter: '\r', escape: '\x1b',
 }
 
 const mod = (a,b) => (b+(a%b))%b;
 
-function getch(raw=false,encoding='utf-8',CtrlC=()=>{process.stdout.write('\x1b[m');process.exit()},CtrlD=CtrlC) {
+function getch(raw=false,encoding='utf-8',CtrlC=()=>{process.stdout.write('\x1b[m');process.exit()},CtrlD=CtrlC,stdin=process.stdin) {
     return new Promise(
         r => {
-            process.stdin.setRawMode(true);
-            process.stdin.ref();
-            process.stdin.once( 'data', (d) => {
+            let rawmode;
+            if (stdin.setRawMode) rawmode = stdin.setRawMode(true);
+            if (stdin.ref) stdin.ref();
+            stdin.once( 'data', (d) => {
                 if (!raw) {
                          if (d == '\x1b[D') r('left');
                     else if (d == '\x1b[C') r('right');
@@ -72,8 +104,8 @@ function getch(raw=false,encoding='utf-8',CtrlC=()=>{process.stdout.write('\x1b[
                     else if (d == '\x04' && CtrlD) CtrlD();
                     else r(encoding?d.toString(encoding):d);
                 }
-                process.stdin.setRawMode(false);
-                process.stdin.unref();
+                if (stdin.setRawMode) stdin.setRawMode(rawmode);
+                if (stdin.unref && stdin.ref) stdin.unref();
             });
         }
     );
@@ -97,20 +129,29 @@ function getch(raw=false,encoding='utf-8',CtrlC=()=>{process.stdout.write('\x1b[
 
 async function input(prompt,settings) {
     let st = {
-        'onAbort': ()=>{process.stdout.write(`\x1b[G\x1b[m${prompt}${value}${!value.length&&settings.emptyPlaceholder.length?' '.repeat(settings.emptyPlaceholder.length):''}\x1b[m`);process.exit()},
+        'onAbort': ()=>{st.stdout.write(`\x1b[G\x1b[m${prompt}${value}${!value.length&&settings.emptyPlaceholder.length?' '.repeat(settings.emptyPlaceholder.length):''}\x1b[m`);if(st.doExit)process.exit()},
+        'doExit': true,
         'default': '',
         'emptyPlaceholder': '',
         replace: null,
+        stdin: process.stdin,
+        stdout: process.stdout
     };
+    
     let rprompt = prompt;
     prompt = prompt.replace(ansiregex,'');
     Object.assign(st,settings);
+
     settings = st;
     settings.default = typeof settings.default.toString == 'function'?settings.default.toString():toString(settings.default);
+
     let value = settings.default;
     let cur = settings.default.length;
     let e = false;
-    process.stdout.write(
+
+    const {stdin,stdout} = settings;
+
+    stdout.write(
         rprompt +
         settings.default +
         (
@@ -120,20 +161,20 @@ async function input(prompt,settings) {
         )
     );
     while (true) {
-        let chr = await getch(true,null,settings.onAbort);
+        let chr = await getch(true,null,settings.onAbort,settings.onAbort,stdin);
         if (chr == undefined) return chr;
         if (chr == Key.backspace) {
             let l1 = value.length;
             value = value.slice(0,cur-1) + value.slice(cur);
             let diff = l1 - value.length;
-            process.stdout.write((cur?`\x1b[${cur}D`:``)+(settings.replace?settings.replace.repeat(value.length):value)+' '+(value.length-(cur-diff)+1?`\x1b[${value.length-(cur-diff)+1}D`:``));
+            stdout.write((cur?`\x1b[${cur}D`:``)+(settings.replace?settings.replace.repeat(value.length):value)+' '+(value.length-(cur-diff)+1?`\x1b[${value.length-(cur-diff)+1}D`:``));
             cur -= diff;
-            if (cur == 0 && value.length == 0 && settings.emptyPlaceholder.length) process.stdout.write((e=true,`${settings.emptyPlaceholder}`+`\x1b[${settings.emptyPlaceholder.replace(ansiregex,'').length}D`));
+            if (cur == 0 && value.length == 0 && settings.emptyPlaceholder.length) stdout.write((e=true,`${settings.emptyPlaceholder}`+`\x1b[${settings.emptyPlaceholder.replace(ansiregex,'').length}D`));
         } else
         if (chr == Key.delete) {
             value = value.slice(0,cur) + value.slice(cur+1);
-            process.stdout.write((cur?`\x1b[${cur}D`:``)+(settings.replace?settings.replace.repeat(value.length):value)+' '+(value.length-cur+1?`\x1b[${value.length-cur+1}D`:``));
-            if (cur == 0 && value.length == 0 && settings.emptyPlaceholder.length) process.stdout.write((e=true,`${settings.emptyPlaceholder}`+`\x1b[${settings.emptyPlaceholder.replace(ansiregex,'').length}D`));
+            stdout.write((cur?`\x1b[${cur}D`:``)+(settings.replace?settings.replace.repeat(value.length):value)+' '+(value.length-cur+1?`\x1b[${value.length-cur+1}D`:``));
+            if (cur == 0 && value.length == 0 && settings.emptyPlaceholder.length) stdout.write((e=true,`${settings.emptyPlaceholder}`+`\x1b[${settings.emptyPlaceholder.replace(ansiregex,'').length}D`));
         } else
         if (chr == '\r') {
             console.log();
@@ -142,26 +183,26 @@ async function input(prompt,settings) {
         if (chr == Key.left) {
             let diff = cur - Math.max(0,cur-1);
             cur -= diff;
-            if (diff>0) process.stdout.write(`\x1b[${diff}D`);
+            if (diff>0) stdout.write(`\x1b[${diff}D`);
         } else
         if (chr == Key.right) {
             let diff =  Math.min(value.length,cur+1) - cur;
             cur += diff;
-            if (diff>0) process.stdout.write(`\x1b[${diff}C`);
+            if (diff>0) stdout.write(`\x1b[${diff}C`);
         } else 
         if (chr == Key.home) {
-            process.stdout.write(`\x1b[${cur}D`);
+            stdout.write(`\x1b[${cur}D`);
             cur = 0;
         } else
         if (chr == Key.end) {
-            process.stdout.write(`\x1b[${value.length-cur}C`);
+            stdout.write(`\x1b[${value.length-cur}C`);
             cur = value.length-1;
         } else if (chr.length && !Object.values(Key.ctrl).includes(chr) && chr.indexOf('\x1b')==-1) {
             chr = chr.toString('utf-8');
             added.push(chr);
             value = value.slice(0,cur) + chr + value.slice(cur);
-            if (e) process.stdout.write(` `.repeat(settings.emptyPlaceholder.replace(ansiregex,'').length)+`\x1b[${settings.emptyPlaceholder.replace(ansiregex,'').length}D`);
-            process.stdout.write((cur?`\x1b[${cur}D`:``)+(settings.replace?settings.replace.repeat(value.length):value)+(value.length-(cur+1+chr.length)?`\x1b[${value.length-(cur+1+chr.length)}D`:``));
+            if (e) stdout.write(` `.repeat(settings.emptyPlaceholder.replace(ansiregex,'').length)+`\x1b[${settings.emptyPlaceholder.replace(ansiregex,'').length}D`);
+            stdout.write((cur?`\x1b[${cur}D`:``)+(settings.replace?settings.replace.repeat(value.length):value)+(value.length-(cur+1+chr.length)?`\x1b[${value.length-(cur+1+chr.length)}D`:``));
             cur += chr.length;
         }
     }
@@ -178,25 +219,31 @@ async function choice(prompt,settings={}) {
         
         ln: true,
         clear: false,
-        onAbort:
-         ()=>{
-            process.stdout.write(`\x1b[2K\x1b[B`.repeat(settings.values.length+1) + `\x1b[A`.repeat(settings.values.length+1) + `\x1b[G\x1b[m`);
-            process.exit();
-         },
+        onAbort: 
+            ()=>{
+                settings.stdout.write(`\x1b[2K\x1b[B`.repeat(settings.values.length+1) + `\x1b[A`.repeat(settings.values.length+1) + `\x1b[G\x1b[m`);
+                if(settings.doExit)process.exit();
+            },
+        doExit: true,
+
+        stdin: process.stdin,
+        stdout: process.stdout
     },settings);
 
+    const {stdout,stdin} = settings;
+
     function update(nr=false) {
-        //process.stdout.write(`${prompt}\x1b[7${settings.values.map((v,p)=>' '.repeat(settings.indent)+(p==i?settings.cusor:settings._cussor)+v).join('\n')}\x1b[8`);
-        process.stdout.write(`\x1b[G${prompt}                       \n${settings.values.map((v,p)=>'\x1b[K'+' '.repeat(settings.indent)+(p==i?settings.cursor:settings._cursor)+v).join('\n')}`+(nr?'\n':`\x1b[${prompt.replace(ansiregex,'').length+1}G\x1b[${settings.values.length}A`));
+        //stdout.write(`${prompt}\x1b[7${settings.values.map((v,p)=>' '.repeat(settings.indent)+(p==i?settings.cusor:settings._cussor)+v).join('\n')}\x1b[8`);
+        stdout.write(`\x1b[G${prompt}                       \n${settings.values.map((v,p)=>'\x1b[K'+' '.repeat(settings.indent)+(p==i?settings.cursor:settings._cursor)+v).join('\n')}`+(nr?'\n':`\x1b[${prompt.replace(ansiregex,'').length+1}G\x1b[${settings.values.length}A`));
     }
 
     let i = 0; 
 
-    process.stdout.write('\n'.repeat(settings.values.length+1)+'\x1b[A'.repeat(settings.values.length+1)+'\x1b[G')
+    stdout.write('\n'.repeat(settings.values.length+1)+'\x1b[A'.repeat(settings.values.length+1)+'\x1b[G')
 
     while (true) {
         update();
-        let chr = await getch(true,null,settings.onAbort);
+        let chr = await getch(true,null,settings.onAbort,undefined,stdin);
         if (chr == Key.up) 
             i = mod(i-1,settings.values.length);
         if (chr == Key.down) 
@@ -204,7 +251,7 @@ async function choice(prompt,settings={}) {
         if (chr == Key.enter) {
             update(settings.ln);
             if (settings.clear) {
-                process.stdout.write(`\x1b[2K\x1b[B`.repeat(settings.values.length+1) + `\x1b[A`.repeat(settings.values.length+1) + `\x1b[G`);
+                stdout.write(`\x1b[2K\x1b[B`.repeat(settings.values.length+1) + `\x1b[A`.repeat(settings.values.length+1) + `\x1b[G`);
             }
             return settings.rv?settings.rv[i]:settings.values[i];
         }
