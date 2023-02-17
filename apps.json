@@ -8,5 +8,10 @@
         "name": "Connect Four",
         "roomSize": "2",
         "path": "apps/connect-four.js"
+    },
+    {
+        "name": "Bomber Man",
+        "roomSize": "5",
+        "path": "apps/bomber-man.js"
     }
 ]

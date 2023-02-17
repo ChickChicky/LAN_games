@@ -141,6 +141,10 @@ function runClient( addr, cb=()=>null ) {
                 ( ' '.repeat(selected) + ['\x1b[31;1m','\x1b[34;1m'][player] + '~\x1b[39m' + ' '.repeat(7-selected) + '\n' ) )
             + '\x1b[m'
         );
+        if (w != null) {
+            console.log((['\x1b[31mPlayer 1','\x1b[34mPlayer 2','\x1b[90mNobody'][w]??'\x1b[33m?') + '\x1b[39m won'+(w==2?'.':' !'));
+            process.exit();
+        }
     }
 
     //\\
@@ -149,12 +153,7 @@ function runClient( addr, cb=()=>null ) {
         .addRequest( 'dropToken', true )
         .addEvent( 'sync', d => {
             ({board,w:winner,player} = d);
-            let [w] = winner;
             render();
-            if (w != null) {
-                console.log(['\x1b[31mPlayer 1','\x1b[34mPlayer 2','\x1b[90mNobody'][w] + '\x1b[39m won'+(w==2?'.':' !'));
-                process.exit();
-            }
         });
     
     cb();

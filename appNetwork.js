@@ -85,6 +85,7 @@ class Server {
 
     constructor (creationCb) {
         this.requests = [];
+        /** @type {net.Socket[]} */
         this.clients = [];
         this.connectionListener = null;
         this.disconnectionListener = null;
