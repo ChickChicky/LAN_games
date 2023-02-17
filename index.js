@@ -2,7 +2,7 @@ const net = require('node:net');
 const path = require('node:path');
 const os = require('node:os');
 
-const {input,choice} = require('./input');
+const {input,choice,CancelChar} = require('./input');
 const apps = require('./apps.json');
 
 choice('Select an app',{
@@ -38,8 +38,8 @@ choice('Select an app',{
             );
         } else if (a == 'join') {
             console.log();
-            let addr = await input('Address: ');
-            let port = await input('Port: ');
+            let addr = await input('Address: '); if (addr == CancelChar) { process.stdout.write('\x1b[2K\x1b[A\x1b[2K\x1b[A'); process.exit(); }
+            let port = await input('Port: ');    if (port == CancelChar) { process.stdout.write('\x1b[2K\x1b[A\x1b[2K\x1b[A\x1b[2K\x1b[A'); process.exit(); }
             app.runClient({host:addr,port},()=>{
                 console.log('\x1b[A\x1b[2K\x1b[A\x1b[2K\x1b[A\x1b[G\x1b[KJoined \x1b[36m'+appd.name+'\x1b[39m '+addr+'\x1b[90m:\x1b[39m'+port);
             });

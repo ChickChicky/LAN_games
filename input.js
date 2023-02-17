@@ -1,6 +1,8 @@
 const ansiregex = /\0|[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
 let added = [];
 
+const {stripVTControlCharacters:stripVTCC} = require('node:util');
+
 const Key = {
     // bindings for ctrl+KEY
     ctrl: {
@@ -74,6 +76,9 @@ const Key = {
     enter: '\r', escape: '\x1b',
 }
 
+const cancelChars = '\x03\x04\x1B';
+const CancelChar =  Symbol('CANCEL');
+
 const mod = (a,b) => (b+(a%b))%b;
 
 function getch(raw=false,encoding='utf-8',CtrlC=()=>{process.stdout.write('\x1b[m');process.exit()},CtrlD=CtrlC,stdin=process.stdin) {
@@ -127,7 +132,7 @@ function getch(raw=false,encoding='utf-8',CtrlC=()=>{process.stdout.write('\x1b[
     );
 }*/
 
-async function input(prompt,settings) {
+/*async function input(prompt,settings) {
     let st = {
         'onAbort': ()=>{st.stdout.write(`\x1b[G\x1b[m${prompt}${value}${!value.length&&settings.emptyPlaceholder.length?' '.repeat(settings.emptyPlaceholder.length):''}\x1b[m`);if(st.doExit)process.exit()},
         'doExit': true,
@@ -206,6 +211,96 @@ async function input(prompt,settings) {
             cur += chr.length;
         }
     }
+}*/
+
+/**
+ * (Taken from another project)
+ * @param {string} prompt the prompt to show before the text
+ * @param {number?} x the X position of the text
+ * @param {number?} y the Y position of the text
+ * @param {((string)=>string)?} replace a function that gets called with the current text and that should return what to display instead
+ * @param {string?} defaultValue the defalt value 
+ * @param {string?} placeHolder text to display when nothing is written
+ * @param {((string)=>void)?} update a function called whenever the value is modified
+ */
+async function input(prompt,x,y,replace,defaultValue,placeHolder='',exitChars=cancelChars,update=()=>undefined) {
+    /**
+     * Returns the current position of the cursor
+     */
+    async function DSR() {
+        process.stdout.write(`\x1b[6n`);
+        return Array.from((await getch('utf-8')).match(/\x1b\[(\d*);(\d*)R/)).slice(1).map(n=>+(n|'0'));
+    }
+    const getch = function(encoding='utf-8',CtrlC=()=>{process.stdout.write('\x1b[m');process.exit()},CtrlD=CtrlC,stdin=process.stdin) {
+        return new Promise(
+            r => {
+    
+                let rawmode;
+    
+                if (stdin.setRawMode) rawmode = stdin.setRawMode(true);
+                if (stdin.ref)        stdin.ref();
+    
+                stdin.once( 'data', (d) => {
+    
+                    if (d == '\x03' && CtrlC) 
+                        r(CtrlC());
+                    else if (d == '\x04' && CtrlD) 
+                        r(CtrlD());
+                    else 
+                        r(encoding?d.toString(encoding):d);
+    
+                    if (stdin.setRawMode)         stdin.setRawMode(rawmode);
+                    if (stdin.unref && stdin.ref) stdin.unref();
+    
+                });
+    
+            }
+        );
+    }
+    let val = defaultValue || '', // the text being written
+        cur = (defaultValue || '').length; // the cursor position
+    {
+        let prePrompt = (typeof x == 'number' && typeof x == typeof y) ? `\x1b[${y};${x}H` : ``;
+        let value = typeof replace == 'function' ? replace(val) : val;
+        process.stdout.write(prePrompt  + (typeof prompt == 'function' ? prompt(value) : prompt) + value);
+    }
+    while (true) {
+        let ch = await getch('utf-8',()=>Key.ctrl.c,()=>Key.ctrl.d);
+        let oc = cur;
+        if (ch == '\r' || exitChars.includes(ch)) {
+        } else if (ch == Key.backspace) {
+            val = val.slice(0,cur-1) + val.slice(cur);
+            cur = Math.max(0, cur-1);
+        } else if (ch == Key.left) {
+            cur = Math.max(0, cur-1);
+        } else if (ch == Key.right) {
+            cur = Math.min(val.length, cur+1);
+        } else if (ch == Key.home) {
+            cur = 0;
+        } else if (ch == Key.end) {
+            cur = val.length;
+        } else if (ch == Key.delete) {
+            val = val.slice(0,cur) + val.slice(cur+1);
+        } else if (Object.values(Key.shift).concat(Object.values(Key.ctrl),Object.values(Key.ctrl_shift)).includes(ch)) {
+        } else {
+            let v = stripVTCC(ch);
+            val = val.slice(0,cur) + v + val.slice(cur);
+            cur += v.length;
+        }
+        let prePrompt = (typeof x == 'number' && typeof x == typeof y) ? `\x1b[${y};${x}H` : `${(oc+(typeof prompt == 'function' ? prompt(val) : prompt).length)?`\x1b[${oc+(typeof prompt == 'function' ? prompt(val) : prompt).length}D`:''}`;
+        let value  = ( typeof replace == 'function' ? await replace(val) : val );
+            value += ( !val.length ? placeHolder||'' : value.length-stripVTCC(placeHolder).length>0 ? ' '.repeat(value.length-stripVTCC(placeHolder).length) : '' );
+        let resetPos = `\x1b[${(await DSR()).join(';')}H`;
+        await update(val,ch);
+        process.stdout.write(resetPos + prePrompt + (typeof prompt == 'function' ? await prompt(val) : prompt) + value + ((ch == '\b' || ch == '\x1b[3~')?' ':'') + ((ch != '\r') ? `\x1b[${(stripVTCC(value).length-cur+(ch == '\b' || ch == '\x1b[3~'))?`\x1b[${stripVTCC(value).length-cur+(ch == '\b' || ch == '\x1b[3~')}D`:''}` : ''));
+        if (ch == '\r') {
+            process.stdout.write('\n');
+            return val;
+        }
+        if (exitChars.includes(ch)) {
+            return CancelChar;
+        }
+    }
 }
 
 async function choice(prompt,settings={}) {
@@ -258,4 +353,4 @@ async function choice(prompt,settings={}) {
     }
 }
 
-module.exports = {getch,input,choice,Key,added};
+module.exports = {getch,input,choice,Key,added,CancelChar};
