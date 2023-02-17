@@ -234,7 +234,7 @@ function runServer(cb) {
         }
     }
 
-    const server = new appNetwork.Server(cb)
+    const server = new appNetwork.Server((...a)=>{cb(...a)})
         .onConnection(
             s => {
                 let id = hash(`${s.remoteAddress}${s.remotePort}`);
@@ -244,7 +244,8 @@ function runServer(cb) {
                     let cl = +Object.entries(availColors).find(c=>c[1])[0];
                     availColors[cl] = false;
                     players[id] = new SV_Player([0,0],cl);
-                    console.log(`Client connected ${s.remoteAddress} ${s.remotePort} ${id}`);
+                    console.log(`\x1b[${31+cl}mConnected\x1b[m ${s.remoteAddress} ${s.remotePort} ${id}`)
+                    //console.log(`\x1b[${server.clients.length+1}AOnline:\n${server.clients.map(s=>`\x1b[K  \x1b[${31+players[hash(`${s.remoteAddress}${s.remotePort}`)].color}m#\x1b[39m ${s.remoteAddress} ${s.remotePort} ${hash(`${s.remoteAddress}${s.remotePort}`)}`).join('\n')}\n`);
                 }
             }
         )
@@ -256,6 +257,8 @@ function runServer(cb) {
                     availColors[p.color] = true;
                     delete players[id];
                 }
+                //console.log(`\x1b[${server.clients.length+3}AOnline:\n${server.clients.map(s=>`\x1b[K  \x1b[${31+players[hash(`${s.remoteAddress}${s.remotePort}`)].color}m#\x1b[39m ${s.remoteAddress} ${s.remotePort} ${hash(`${s.remoteAddress}${s.remotePort}`)}`).join('\n')}\x1b[K\n\x1b[K\n`);
+
             }
         )
         .addRequest( 'move', true, (d,s) => {
@@ -289,7 +292,7 @@ function runServer(cb) {
                     if (obj.dat.exhaustsAt <= Date.now()) objects = objects.filter(o=>o!=obj);
                     for (let p of Object.values(players).filter(p=>p.ipos(level())==obj.ipos(level()))) if (!obj.dat.damaged.includes(p)) {
                         obj.dat.damaged.push(p);
-                        p.lives--;
+                        if (p.lives > 0) p.lives--;
                     }
                 }
             }
