@@ -4,6 +4,12 @@ const crypto = require('node:crypto');
 
 const hash = d => crypto.createHash('sha1').update(d).digest('hex');
 
+function weightedChoice(choices,weights) {
+    let rranges = choices.map((c,i)=>[c,weights[i]]).map((v,i,a)=>[v[0],[0,v[1]].map(r=>r+a.slice(0,i).reduce((a,b)=>a+b[1],0))]);
+    let rvalue  = Math.random()*weights.reduce((a,b)=>a+b,0);
+    return rranges.find(r=>r[1][0]<=rvalue&&r[1][1]>rvalue)[0]
+}
+
 // Enum containing all cell types
 const CellType = {
     EMPTY : 0,
@@ -14,12 +20,13 @@ const CellType = {
 // Enum containing all object types
 const ObjType = {
     BOMB: 0,
-    FIRE: 1
+    FIRE: 1,
+    MYSTERY_BOX: 2
 }
 
 // list of attributes not to send for objects when sending a sync event
 const ObjPrivateAttr = {
-    [ObjType.BOMB]: [ ],
+    [ObjType.BOMB]: [ 'modifiers' ],
     [ObjType.FIRE]: [ 'damaged' ]
 }
 
@@ -40,6 +47,10 @@ const Direction = {
     RIGHT : 1,
     DOWN  : 2,
     LEFT  : 3
+}
+
+const BombModifiers = {
+    GHOST: 0
 }
 
 // A class representing an object Server-side
@@ -89,6 +100,9 @@ class SV_Player {
         this.lm = -Infinity;
         // last bomb drop timestamp
         this.ld = -Infinity;
+
+        this.range = 3;
+        this.rangeModifier = 0;
     }
 
     /**
@@ -124,7 +138,7 @@ class SV_Player {
      */
     drop(level) { if (!this.lives) return false;
         if (Date.now() - this.ld < this.dropCooldown()) return false; this.ld = Date.now();
-        level.objects.push(new SV_Object(ObjType.BOMB,[...this.pos],{size:2,explodesAt:Date.now()+2000}));
+        level.objects.push(new SV_Object(ObjType.BOMB,[...this.pos],{size:this.range+this.rangeModifier,explodesAt:Date.now()+2000}));
         return true;
     }
     dropCooldown() {
@@ -142,7 +156,13 @@ class SV_Player {
             color: this.color,
             pos  : this.pos,
             id,
-            ...(currentPlayer?{inventory:this.inventory,lives:this.lives,maxLives:this.maxLives}:{})
+            ...(currentPlayer?{
+                inventory    : this.inventory,
+                lives        : this.lives,
+                maxLives     : this.maxLives,
+                range        : this.range,
+                rangeModifier: this.rangeModifier
+            }:{})
         }
     }
     /**
@@ -164,6 +184,8 @@ class CL_Player {
         this.id = d.id;
         this.maxLives = d.maxLives;
         this.lives = d.lives;
+        this.range = d.range;
+        this.RangeModifier = d.rangeModifier;
     }
     ipos(level) {
         return this.pos[0] + this.pos[1] * level.mapSize[0];
@@ -177,6 +199,7 @@ function runServer(cb) {
      */
     function explode(obj) {
         objects.push(new SV_Object(ObjType.FIRE,obj.pos,{exhaustsAt:Date.now()+200}));
+        let b = [false,false,false,false];
         for (let i = 0; i < obj.dat.size; i++) {
             setTimeout(
                 () => {
@@ -186,8 +209,16 @@ function runServer(cb) {
                         [obj.pos[0]+(i+1),obj.pos[1]],
                         [obj.pos[0]-(i+1),obj.pos[1]]
                     ];
-                    for (let pp of p) if (!CellTags.BLOCKING.includes(map[pp[0]+pp[1]*mapSize[0]])&&pp[0]>=0&&pp[0]<mapSize[0]&&pp[1]>=0&&pp[1]<mapSize[1]) {
+                    let j = 0;
+                    for (let pp of p) if ((!b[j]||(obj.dat.modifiers??[]).includes(BombModifiers.GHOST))&&!CellTags.BLOCKING.includes(map[pp[0]+pp[1]*mapSize[0]])&&pp[0]>=0&&pp[0]<mapSize[0]&&pp[1]>=0&&pp[1]<mapSize[1]) {
                         objects.push(new SV_Object(ObjType.FIRE,pp,{exhaustsAt:Date.now()+200+50*(i+1)}));
+                        for (let bomb of objects.filter(o=>o.pos[0]==pp[0]&&o.pos[1]==pp[0]&&o.type==ObjType.BOMB)) {
+                            bomb.dat.explodesAt-=1000;
+                        }
+                        j++;
+                    } else {
+                        b[j] = true;
+                        j++;
                     }
                 },
                 50*(i+1)
@@ -196,21 +227,23 @@ function runServer(cb) {
     }
 
     let baseMap = [
-        0,0,0,0,0,0,0,0,0,0,0,
-        0,1,0,1,0,0,0,1,0,1,0,
-        0,0,0,0,0,0,0,0,0,0,0,
-        0,1,0,1,0,0,0,1,0,1,0,
-        0,0,0,0,0,0,0,0,0,0,0,
-        0,0,1,0,0,1,0,0,1,0,0,
-        0,0,0,0,0,0,0,0,0,0,0,
-        0,1,0,1,0,0,0,1,0,1,0,
-        0,0,0,0,0,0,0,0,0,0,0,
-        0,1,0,1,0,0,0,1,0,1,0,
-        0,0,0,0,0,0,0,0,0,0,0
+        0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,1,0,1,0,0,0,0,0,1,0,1,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,1,0,1,0,0,0,0,0,1,0,1,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,1,0,0,0,0,0,0,0,1,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,1,0,1,0,0,0,0,0,1,0,1,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,1,0,1,0,0,0,0,0,1,0,1,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0
     ];
 
     // the width and height of the map
-    let mapSize = [11,11];
+    let mapSize = [13,13];
     // all the cells in the map
     let map = [...baseMap];
     // metadata for some cells in the map
@@ -295,6 +328,59 @@ function runServer(cb) {
                         if (p.lives > 0) p.lives--;
                     }
                 }
+                if (obj.type == ObjType.MYSTERY_BOX) {
+                    if (obj.dat.destroyedAt <= Date.now()) objects = objects.filter(o=>o!=obj);
+                    let p = Object.entries(players).find(p=>p[1].ipos(level())==obj.ipos(level()));
+                    if (p) {
+                        let [id,player] = p;
+                        let prize = weightedChoice(
+                            ...[
+                                [ 'move',        10 ],
+                                [ 'range-plus',  10 ],
+                                [ 'range-minus', 4  ]
+                            ].reduce((acc,v)=>(acc[0].push(v[0]),acc[1].push(v[1]),acc),[[],[]])
+                        )
+                        if (prize == 'move') {
+                            while (true) {
+                                let p = [Math.floor(Math.random()*mapSize[0]),Math.floor(Math.random()*mapSize[1])];
+                                let pi = p[0] + p[1]*mapSize[0];
+                                if (!CellTags.BLOCKING.includes(map[pi])) {
+                                    objects.push(new SV_Object(ObjType.MYSTERY_BOX,p,{destroyedAt:Date.now()+10000}));
+                                    break;
+                                }
+                            }
+                        }
+                        if (prize == 'range-plus') {
+                            player.rangeModifier++;
+                            setTimeout(
+                                () => {
+                                    player.rangeModifier--;
+                                },
+                                20000
+                            );
+                        }
+                        if (prize == 'range-minus') {
+                            player.rangeModifier--;
+                            setTimeout(
+                                () => {
+                                    player.rangeModifier++;
+                                },
+                                20000
+                            );
+                        }
+                        objects = objects.filter(o=>o!=obj);
+                    }
+                }
+            }
+            if (Math.random() < 0.1/100) {
+                while (true) {
+                    let p = [Math.floor(Math.random()*mapSize[0]),Math.floor(Math.random()*mapSize[1])];
+                    let pi = p[0] + p[1]*mapSize[0];
+                    if (!CellTags.BLOCKING.includes(map[pi])) {
+                        objects.push(new SV_Object(ObjType.MYSTERY_BOX,p,{destroyedAt:Date.now()+10000}));
+                        break;
+                    }
+                }
             }
             sync();
         },
@@ -328,6 +414,7 @@ function runClient( addr, cb=()=>null ) {
             let s = '';
             if (objects.some(o=>o.ipos(level())==i&&o.type==ObjType.BOMB)) s += '\x1b[41m';
             if (objects.some(o=>o.ipos(level())==i&&o.type==ObjType.FIRE)) return s + '\x1b[91m▒\x1b[m';
+            if (objects.some(o=>o.ipos(level())==i&&o.type==ObjType.MYSTERY_BOX)) return s + '\x1b[33m?\x1b[m';
             let ct = map[i];
             let c = {[CellType.WALL]:'█',[CellType.EMPTY]:' '}[ct];
             if (c != undefined) return s+c+'\x1b[m';
@@ -342,7 +429,7 @@ function runClient( addr, cb=()=>null ) {
         }
         let thisPlayer = players.find(p=>p.inventory);
         sout.write(
-            `╔` + '═'.repeat(mapSize[0]) + '╗\n' + Array(mapSize[1]).fill().map((_,y)=>'║'+Array(mapSize[0]).fill().map((_,x)=>renderCell(x+y*mapSize[0])).join('')+'║').join('\n') +  '\n╚' + '═'.repeat(mapSize[0]) + `╝\n` + `${thisPlayer?`\x1b[31m${'♥'.repeat(thisPlayer.lives)}\x1b[90m${'♥'.repeat(thisPlayer.maxLives-thisPlayer.lives)}`:'\x1b[91mDEAD'}\x1b[m\n^  \n$  \nù  \n*  \n` +(final?'':`\x1b[${mapSize[1]+7}A\x1b[G`)
+            `╔` + '═'.repeat(mapSize[0]) + '╗\n' + Array(mapSize[1]).fill().map((_,y)=>'║'+Array(mapSize[0]).fill().map((_,x)=>renderCell(x+y*mapSize[0])).join('')+'║').join('\n') +  '\n╚' + '═'.repeat(mapSize[0]) + `╝\n` + (thisPlayer?`\x1b[K${'#'.repeat(Math.max(0,thisPlayer.range+Math.min(0,thisPlayer.rangeModifier)))}\x1b[31m${'#'.repeat(Math.max(0,-thisPlayer.rangeModifier))}\x1b[33m${'#'.repeat(Math.max(0,thisPlayer.rangeModifier))}\x1b[m`:`\n`) + `${thisPlayer?`\x1b[31m${'♥'.repeat(thisPlayer.lives)}\x1b[90m${'♥'.repeat(thisPlayer.maxLives-thisPlayer.lives)}`:'\x1b[91mDEAD'}\x1b[m\n^  \n$  \nù  \n*  \n` +(final?'':`\x1b[${mapSize[1]+8}A\x1b[G`)
         );
     }
 
