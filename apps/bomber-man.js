@@ -15,24 +15,24 @@ const CellType = {
     EMPTY : 0,
     WALL  : 1,
     PLAYER: 2,
-    FRAGILE_WALL : 3
+    FRAGILE_WALL : 3,
 }
 
 // Enum containing all object types
 const ObjType = {
     BOMB: 0,
     FIRE: 1,
-    MYSTERY_BOX: 2
+    MYSTERY_BOX: 2,
 }
 
 // list of attributes not to send for objects when sending a sync event
 const ObjPrivateAttr = {
-    [ObjType.BOMB]: [ 'modifiers' ],
-    [ObjType.FIRE]: [ 'damaged' ]
+    [ObjType.BOMB]: [ 'modifiers', 'range' ],
+    [ObjType.FIRE]: [ 'damaged' ],
 }
 
 const InitObj = {
-    [ObjType.FIRE] : o => { o.dat.damaged = [] }
+    [ObjType.FIRE] : o => { o.dat.damaged = [] },
 }
 
 // Enum containing various tags for cell types
@@ -40,7 +40,7 @@ const CellTags = {
     BLOCKING : [
         CellType.WALL,
         CellType.FRAGILE_WALL
-    ]
+    ],
 }
 
 // Enum containing all 4 directions
@@ -48,7 +48,7 @@ const Direction = {
     UP    : 0,
     RIGHT : 1,
     DOWN  : 2,
-    LEFT  : 3
+    LEFT  : 3,
 }
 
 const BombModifiers = {
@@ -57,7 +57,7 @@ const BombModifiers = {
 
 const PlayerModifier = {
     SPEED: 0,
-    DROP_SPEED: 1
+    DROP_SPEED: 1,
 }
 
 const PlayerModifierAttr = {
@@ -70,6 +70,16 @@ const PlayerModifierAttr = {
         Render: '\x1b[91m>>\x1b[39m',
         Chance: 100,
         Duration: 10000,
+    },
+}
+
+const GameModifier = {
+    CRATE_SPAWN_RATE: 1,
+}
+
+const GameModifierAttr = {
+    [GameModifier.CRATE_SPAWN_RATE]: {
+        Render: '\x1b[33m?\x1b[m'
     },
 }
 
@@ -169,7 +179,7 @@ class SV_Player {
         return true;
     }
     moveCooldown() {
-        return 200*(0.75**this.modifiers.count(PlayerModifier.SPEED));
+        return 200*(0.5**this.modifiers.count(PlayerModifier.SPEED));
     }
 
     /**
@@ -203,7 +213,7 @@ class SV_Player {
                 maxLives     : this.maxLives,
                 range        : this.range,
                 rangeModifier: this.rangeModifier,
-                modifiers    : this.modifiers.serialize_CL()
+                modifiers    : this.modifiers.serialize_CL(),
             }:{})
         }
     }
@@ -308,6 +318,9 @@ function runServer(cb) {
     /** @type {SV_Object[]} all the objects present on the map */
     let objects = [];
 
+    // keeps track of all game-related modifiers
+    let modifiers = new SV_ModifierManager();
+
     // A function returning all information about the level
     let level = () => ({ map,mapSize,mapMeta,players,objects });
 
@@ -321,7 +334,7 @@ function runServer(cb) {
     function sync() {
         for (let s of server.clients) if (!s.closed) {
             let id = hash(`${s.remoteAddress}${s.remotePort}`);
-            server.dispatchEvent('sync',{objects:objects.map(o=>o.serialize_CL(id)),map:map.map((c,i)=>Object.values(players).some(p=>p.ipos(level())==i)?CellType.PLAYER:c),mapMeta:mapMeta,mapSize,players:Object.entries(players).filter(p=>p[1].lives).map((pl)=>pl[1].serialize_CL(pl[0],pl[0]==id))},[s]);
+            server.dispatchEvent('sync',{modifiers:modifiers.serialize_CL(),objects:objects.map(o=>o.serialize_CL(id)),map:map.map((c,i)=>Object.values(players).some(p=>p.ipos(level())==i)?CellType.PLAYER:c),mapMeta:mapMeta,mapSize,players:Object.entries(players).filter(p=>p[1].lives).map((pl)=>pl[1].serialize_CL(pl[0],pl[0]==id))},[s]);
         }
     }
 
@@ -404,6 +417,7 @@ function runServer(cb) {
                                 [ 'random-bomb', 2   ]
                             ].reduce((acc,v)=>(acc[0].push(v[0]),acc[1].push(v[1]),acc),[[],[]])
                         )
+                        console.log(`\x1b[33m?\x1b[m: ${prize}`);
                         if (prize == 'move') {
                             while (true) {
                                 let p = [Math.floor(Math.random()*mapSize[0]),Math.floor(Math.random()*mapSize[1])];
@@ -419,6 +433,7 @@ function runServer(cb) {
                                 [ 1,  2, 3 ],
                                 [ 10, 5, 1 ]
                             );
+                            console.log(`   * ${amnt}`);
                             player.rangeModifier+=amnt;
                             setTimeout(
                                 () => {
@@ -443,11 +458,13 @@ function runServer(cb) {
                             player.lives = Math.min(player.maxLives,player.lives+1);
                         }
                         if (prize == 'more-boxes') {
-                            let mod = 0.5/100;
+                            let mod = 10/100;
                             bfm += mod;
+                            modifiers.add(GameModifier.CRATE_SPAWN_RATE);
                             setTimeout(
                                 () => {
-                                    bfm += mod;
+                                    bfm -= mod;
+                                    modifiers.remove(GameModifier.CRATE_SPAWN_RATE);
                                 },
                                 10000
                             )
@@ -456,6 +473,7 @@ function runServer(cb) {
                             let mod = weightedChoice(
                                 ...Object.values(PlayerModifier).map(m=>[m,PlayerModifierAttr[m].Chance]).reduce((acc,v)=>(acc[0].push(v[0]),acc[1].push(v[1]),acc),[[],[]])
                             );
+                            console.log(`   * ${mod} (${Object.keys(PlayerModifier)[mod]})`);
                             player.modifiers.add(mod);
                             setTimeout(
                                 () => {
@@ -509,6 +527,8 @@ function runClient( addr, cb=()=>null ) {
     let players = [];
     /** @type {CL_Object[]} */
     let objects = [];
+    /** @type {int[]} */
+    let modifiers = [];
 
     const sout = process.stdout;
     const sin  = process.stdin;
@@ -544,7 +564,7 @@ function runClient( addr, cb=()=>null ) {
         }
         let thisPlayer = players.find(p=>p.inventory);
         sout.write(
-            `╔` + '═'.repeat(mapSize[0]) + '╗\n' + Array(mapSize[1]).fill().map((_,y)=>'\x1b[K║'+Array(mapSize[0]).fill().map((_,x)=>renderCell(x+y*mapSize[0])).join('')+'║').join('\n') +  '\n\x1b[K╚' + '═'.repeat(mapSize[0]) + `╝\n` + (thisPlayer?`\x1b[K${thisPlayer.modifiers.map(m=>((PlayerModifierAttr[m]??{}).Render??'\x1b[90m?\x1b[m')+'\x1b[m').join(' ')}\n`:'\x1b[K\n') + (thisPlayer?`\x1b[31m\x1b[K${'#'.repeat(Math.max(0,thisPlayer.range+Math.min(0,thisPlayer.rangeModifier)))}\x1b[90m${'.'.repeat(Math.max(0,-thisPlayer.rangeModifier))}\x1b[33m${'#'.repeat(Math.max(0,thisPlayer.rangeModifier))}\x1b[m\n`:`\x1b[K\n`) + `\x1b[K${thisPlayer?`\x1b[31m${'♥'.repeat(thisPlayer.lives)}\x1b[90m${'♥'.repeat(thisPlayer.maxLives-thisPlayer.lives)}`:'\x1b[91mDEAD'}\x1b[m\n\x1b[K^  \n\x1b[K$  \n\x1b[Kù  \n\x1b[K*  \n` +(final?'':`\x1b[${mapSize[1]+9}A\x1b[G`)
+            `╔` + '═'.repeat(mapSize[0]) + '╗\n' + Array(mapSize[1]).fill().map((_,y)=>'\x1b[K║'+Array(mapSize[0]).fill().map((_,x)=>renderCell(x+y*mapSize[0])).join('')+'║').join('\n') +  '\n\x1b[K╚' + '═'.repeat(mapSize[0]) + `╝\n` + `\x1b[K${(thisPlayer?thisPlayer.modifiers.map(m=>((PlayerModifierAttr[m]??{}).Render??'\x1b[90m?\x1b[m')+'\x1b[m'):[]).concat(modifiers.map(m=>GameModifierAttr[m].Render)).join(' ')}\n` + (thisPlayer?`\x1b[31m\x1b[K${'#'.repeat(Math.max(0,thisPlayer.range+Math.min(0,thisPlayer.rangeModifier)))}\x1b[90m${'.'.repeat(Math.max(0,-thisPlayer.rangeModifier))}\x1b[33m${'#'.repeat(Math.max(0,thisPlayer.rangeModifier))}\x1b[m\n`:`\x1b[K\n`) + `\x1b[K${thisPlayer?`\x1b[31m${'♥'.repeat(thisPlayer.lives)}\x1b[90m${'♥'.repeat(thisPlayer.maxLives-thisPlayer.lives)}`:'\x1b[91mDEAD'}\x1b[m\n\x1b[K^  \n\x1b[K$  \n\x1b[Kù  \n\x1b[K*  \n` +(final?'':`\x1b[${mapSize[1]+9}A\x1b[G`)
         );
     }
 
@@ -555,7 +575,7 @@ function runClient( addr, cb=()=>null ) {
         .addRequest( 'drop' )
         .addRequest( 'use' )
         .addEvent( 'sync', d =>{
-            ({map,mapSize,mapMeta,players,objects} = d);
+            ({map,mapSize,mapMeta,players,objects,modifiers} = d);
             players = players.map(p=>new CL_Player(p));
             objects = objects.map(o=>new CL_Object(o));
             render();
