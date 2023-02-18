@@ -348,7 +348,7 @@ function runServer(cb) {
                     let cl = +Object.entries(availColors).find(c=>c[1])[0];
                     availColors[cl] = false;
                     players[id] = new SV_Player([0,0],cl);
-                    console.log(`\x1b[${31+cl}mConnected\x1b[m ${s.remoteAddress} ${s.remotePort} ${id}`)
+                    console.log(`\x1b[${31+cl}mConnected\x1b[m ${s.remoteAddress} ${s.remotePort} ${id.slice(0,5)}\x1b[90m${id.slice(1)}\x1b[m`)
                     //console.log(`\x1b[${server.clients.length+1}AOnline:\n${server.clients.map(s=>`\x1b[K  \x1b[${31+players[hash(`${s.remoteAddress}${s.remotePort}`)].color}m#\x1b[39m ${s.remoteAddress} ${s.remotePort} ${hash(`${s.remoteAddress}${s.remotePort}`)}`).join('\n')}\n`);
                 }
             }
@@ -410,14 +410,14 @@ function runServer(cb) {
                                 [ 'range-plus',  7   ],
                                 [ 'range-minus', 3   ],
                                 [ 'range-bonus', 1   ],
-                                [ 'life-bonus',  (player.lives == player.maxLives ? (6) : (0))  ],
+                                [ 'life-bonus',  (player.lives != player.maxLives ? (6) : (0))  ],
                                 [ 'life-bonus+', 1   ],
                                 [ 'more-boxes',  0.1 ],
                                 [ 'player-mod',  6   ],
                                 [ 'random-bomb', 2   ]
                             ].reduce((acc,v)=>(acc[0].push(v[0]),acc[1].push(v[1]),acc),[[],[]])
                         )
-                        console.log(`\x1b[33m?\x1b[m: ${prize}`);
+                        console.log(`\x1b[33m?\x1b[m: ${prize} \x1b[${31+player.color}m${id.slice(0,5)}\x1b[m`);
                         if (prize == 'move') {
                             while (true) {
                                 let p = [Math.floor(Math.random()*mapSize[0]),Math.floor(Math.random()*mapSize[1])];
