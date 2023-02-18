@@ -14,7 +14,8 @@ function weightedChoice(choices,weights) {
 const CellType = {
     EMPTY : 0,
     WALL  : 1,
-    PLAYER: 2
+    PLAYER: 2,
+    FRAGILE_WALL : 3
 }
 
 // Enum containing all object types
@@ -37,7 +38,8 @@ const InitObj = {
 // Enum containing various tags for cell types
 const CellTags = {
     BLOCKING : [
-        CellType.WALL
+        CellType.WALL,
+        CellType.FRAGILE_WALL
     ]
 }
 
@@ -253,11 +255,18 @@ function runServer(cb) {
                     let j = 0;
                     for (let pp of p) if ((!b[j]||(obj.dat.modifiers??[]).includes(BombModifiers.GHOST))&&!CellTags.BLOCKING.includes(map[pp[0]+pp[1]*mapSize[0]])&&pp[0]>=0&&pp[0]<mapSize[0]&&pp[1]>=0&&pp[1]<mapSize[1]) {
                         objects.push(new SV_Object(ObjType.FIRE,pp,{exhaustsAt:Date.now()+200+50*(i+1)}));
-                        for (let bomb of objects.filter(o=>o.pos[0]==pp[0]&&o.pos[1]==pp[0]&&o.type==ObjType.BOMB)) {
+                        for (let bomb of objects.filter(o=>o.pos[0]==pp[0]&&o.pos[1]==pp[1]&&o.type==ObjType.BOMB)) {
                             bomb.dat.explodesAt-=1000;
                         }
                         j++;
                     } else {
+                        let pi = pp[0]+pp[1]*mapSize[0];
+                        if (!b[j]&& map[pi] == CellType.FRAGILE_WALL) {
+                            if (--mapMeta[pi] == 0) {
+                                delete mapMeta[pi];
+                                map[pi] = CellType.EMPTY;
+                            }
+                        }
                         b[j] = true;
                         j++;
                     }
@@ -273,22 +282,27 @@ function runServer(cb) {
         0,0,0,0,0,0,0,0,0,0,0,0,0,
         0,1,0,1,0,0,0,0,0,1,0,1,0,
         0,0,0,0,0,0,0,0,0,0,0,0,0,
-        0,0,0,0,0,0,0,0,0,0,0,0,0,
-        0,0,1,0,0,0,0,0,0,0,1,0,0,
-        0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,3,0,0,0,0,0,0,
+        0,0,1,0,0,3,3,3,0,0,1,0,0,
+        0,0,0,0,0,0,3,0,0,0,0,0,0,
         0,0,0,0,0,0,0,0,0,0,0,0,0,
         0,1,0,1,0,0,0,0,0,1,0,1,0,
         0,0,0,0,0,0,0,0,0,0,0,0,0,
         0,1,0,1,0,0,0,0,0,1,0,1,0,
         0,0,0,0,0,0,0,0,0,0,0,0,0
     ];
+    let baseMapMeta = {
+               71: 3,
+        83: 3, 84: 3, 85: 3,
+               97: 3
+    };
 
     // the width and height of the map
     let mapSize = [13,13];
     // all the cells in the map
     let map = [...baseMap];
     // metadata for some cells in the map
-    let mapMeta = {};
+    let mapMeta = {...baseMapMeta};
     /** @type {Object<string,SV_Player>} all the players, associated with their ID */
     let players = {};
     /** @type {SV_Object[]} all the objects present on the map */
@@ -380,12 +394,14 @@ function runServer(cb) {
                         let prize = weightedChoice(
                             ...[
                                 [ 'move',        10  ],
-                                [ 'range-plus',  7  ],
+                                [ 'range-plus',  7   ],
                                 [ 'range-minus', 3   ],
-                                [ 'life-bonus',  player.lives == player.maxLives ? 6 : 0  ],
+                                [ 'range-bonus', 1   ],
+                                [ 'life-bonus',  (player.lives == player.maxLives ? (6) : (0))  ],
                                 [ 'life-bonus+', 1   ],
                                 [ 'more-boxes',  0.1 ],
-                                [ 'player-mod',  6 ]
+                                [ 'player-mod',  6   ],
+                                [ 'random-bomb', 2   ]
                             ].reduce((acc,v)=>(acc[0].push(v[0]),acc[1].push(v[1]),acc),[[],[]])
                         )
                         if (prize == 'move') {
@@ -448,6 +464,19 @@ function runServer(cb) {
                                 PlayerModifierAttr[mod].Duration
                             )
                         }
+                        if (prize == 'random-bomb') {
+                            while (true) {
+                                let p = [Math.floor(Math.random()*mapSize[0]),Math.floor(Math.random()*mapSize[1])];
+                                let pi = p[0] + p[1]*mapSize[0];
+                                if (!CellTags.BLOCKING.includes(map[pi])) {
+                                    objects.push(new SV_Object(ObjType.BOMB,p,{size:1,explodesAt:Date.now()+500}));
+                                    break;
+                                }
+                            }
+                        }
+                        if (prize == 'range-bonus') {
+                            player.range++;
+                        }
                         objects = objects.filter(o=>o!=obj);
                     }
                 }
@@ -494,13 +523,16 @@ function runClient( addr, cb=()=>null ) {
 
     function render(final=false) { if (!mapSize[0] || !mapSize[1]) return; // prevents rendering the map if it hasn't been loaded yet
         let renderCell = i => {
-            let s = '';
+            let s = '\x1b[40m\x1b[49;5;16m';
             if (objects.some(o=>o.ipos(level())==i&&o.type==ObjType.BOMB)) s += '\x1b[41m';
             if (objects.some(o=>o.ipos(level())==i&&o.type==ObjType.FIRE)) return s + '\x1b[91m▒\x1b[m';
             if (objects.some(o=>o.ipos(level())==i&&o.type==ObjType.MYSTERY_BOX)) return s + '\x1b[33m?\x1b[m';
             let ct = map[i];
             let c = {[CellType.WALL]:'█',[CellType.EMPTY]:' '}[ct];
             if (c != undefined) return s+c+'\x1b[m';
+            if (ct == CellType.FRAGILE_WALL) {
+                return s+`${['@','░','▒','▓'][mapMeta[i]]}`;
+            }
             if (ct == CellType.PLAYER) {
                 let p  = players.find(p=>p.ipos(level())==i);
                 if (p)

@@ -1,0 +1,76 @@
+# **Feb 16, 2023**
+
+<br>
+
+## Initial commit
+* Added launcher
+### *Tic tac toe*
+* Added tic tac toe
+
+<br>
+
+## Added connect four
+### *Connect four*
+* Added connect four
+
+<br>
+
+## Small fix
+* Fixed packets being sent together, messing up JSON.parse(...)
+
+<br>
+<br>
+
+# **Feb 17, 2023**
+
+<br>
+
+## Added bomber man
+### *Bomber man*
+* Added bomber man
+### *Connect four*
+* Fixed clients not properly closing when there was a checkmate
+
+<br>
+
+## Small fix
+### *Bomber man*
+* Fixed player being damaged after being dead, causing the individual player's client to crash
+
+<br>
+
+## Input fix 
+* Fixed input in the launcher, now using a proper input function from another project
+
+
+<br>
+<br>
+
+
+# **Feb 18, 2023**
+
+<br>
+
+## Added power-ups for bomber man
+### *Bomber man*
+* Added mystery boxes for bomber man providing the following effects:
+    * Moves it somewhere else
+    * Increases up to 3 the player's bomb radius for a few seconds
+    * Decreases the player's bomb radius by 1 for a few seconds
+    * Increases the player's max life by 1
+    * Regenerates the player's life by 1
+    * Increases the boxes spawn frequency for a few seconds
+    * Adds a temporary player modifier including:
+        * Increasing movement speed for a few seconds
+        * Increasing drop speed for a few seconds
+
+<br>
+
+## Bomber man update
+* Added `CHANGELOG`
+### *Bomber man*
+* Added more mystery box items:
+    * A bomb placed randomly in the world
+    * Permanent range increase
+* Added breakble walls
+* Fixed the fire, it now properly reduces the fuse time of any bomb it touches
