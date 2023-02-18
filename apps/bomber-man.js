@@ -348,7 +348,7 @@ function runServer(cb) {
                     let cl = +Object.entries(availColors).find(c=>c[1])[0];
                     availColors[cl] = false;
                     players[id] = new SV_Player([0,0],cl);
-                    console.log(`\x1b[${31+cl}mConnected\x1b[m ${s.remoteAddress} ${s.remotePort} ${id.slice(0,5)}\x1b[90m${id.slice(1)}\x1b[m`)
+                    console.log(`\x1b[${31+cl}mConnected\x1b[m ${s.remoteAddress} ${s.remotePort} ${id.slice(0,5)}\x1b[90m${id.slice(5)}\x1b[m`)
                     //console.log(`\x1b[${server.clients.length+1}AOnline:\n${server.clients.map(s=>`\x1b[K  \x1b[${31+players[hash(`${s.remoteAddress}${s.remotePort}`)].color}m#\x1b[39m ${s.remoteAddress} ${s.remotePort} ${hash(`${s.remoteAddress}${s.remotePort}`)}`).join('\n')}\n`);
                 }
             }
