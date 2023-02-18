@@ -11,8 +11,12 @@ class App {
         this.events = [];
         this.responses = {};
         this.client = net.createConnection(addr);
+        this.buff = '';
         this.client.on('data',async rd=>{rd=rd.toString('utf-8');
-            for (let d of rd.split('\x17')) if (d) {
+            this.buff += rd;
+            while (this.buff.includes('\x17')) {
+                let d = this.buff.slice(0,this.buff.indexOf('\x17'));
+                this.buff = this.buff.slice(this.buff.indexOf('\x17')+1);
                 let jd = JSON.parse(d);
                 if (jd.type == 'connect_response') {
                     throw Error((jd.message??'')+'\n'+inspect(jd,{colors:true,depth:5}));
