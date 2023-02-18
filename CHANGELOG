@@ -74,3 +74,8 @@
     * Permanent range increase
 * Added breakble walls
 * Fixed the fire, it now properly reduces the fuse time of any bomb it touches
+
+<br>
+
+## Networking update
+* Client should now be receiving packets properly
