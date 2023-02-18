@@ -53,6 +53,24 @@ const BombModifiers = {
     GHOST: 0
 }
 
+const PlayerModifier = {
+    SPEED: 0,
+    DROP_SPEED: 1
+}
+
+const PlayerModifierAttr = {
+    [PlayerModifier.SPEED] : {
+        Render: '\x1b[96m>>\x1b[39m',
+        Chance: 100,
+        Duration: 10000,
+    },
+    [PlayerModifier.DROP_SPEED] : {
+        Render: '\x1b[91m>>\x1b[39m',
+        Chance: 100,
+        Duration: 10000,
+    },
+}
+
 // A class representing an object Server-side
 class SV_Object {
     constructor (type,pos,dat) {
@@ -82,6 +100,25 @@ class CL_Object {
     }
 }
 
+class SV_ModifierManager {
+    constructor () {
+        this.mod = [];
+    }
+    add(m) {
+        this.mod.push(m);
+    }
+    remove(m) {
+        let i = this.mod.indexOf(m);
+        if (i != -1) this.mod = this.mod.filter((_,j)=>i!=j);
+    }
+    count(m) {
+        return this.mod.filter(t=>t==m).length;
+    }
+    serialize_CL() {
+        return this.mod;
+    }
+}
+
 // A class representing a player Server-side
 class SV_Player {
     constructor (position,color) {
@@ -103,6 +140,8 @@ class SV_Player {
 
         this.range = 3;
         this.rangeModifier = 0;
+
+        this.modifiers = new SV_ModifierManager();
     }
 
     /**
@@ -128,7 +167,7 @@ class SV_Player {
         return true;
     }
     moveCooldown() {
-        return 200;
+        return 200*(0.75**this.modifiers.count(PlayerModifier.SPEED));
     }
 
     /**
@@ -142,7 +181,7 @@ class SV_Player {
         return true;
     }
     dropCooldown() {
-        return 1000;
+        return 1000*(0.5**this.modifiers.count(PlayerModifier.DROP_SPEED));
     }
 
     /**
@@ -161,7 +200,8 @@ class SV_Player {
                 lives        : this.lives,
                 maxLives     : this.maxLives,
                 range        : this.range,
-                rangeModifier: this.rangeModifier
+                rangeModifier: this.rangeModifier,
+                modifiers    : this.modifiers.serialize_CL()
             }:{})
         }
     }
@@ -185,7 +225,8 @@ class CL_Player {
         this.maxLives = d.maxLives;
         this.lives = d.lives;
         this.range = d.range;
-        this.RangeModifier = d.rangeModifier;
+        this.rangeModifier = d.rangeModifier;
+        this.modifiers = d.modifiers;
     }
     ipos(level) {
         return this.pos[0] + this.pos[1] * level.mapSize[0];
@@ -258,6 +299,9 @@ function runServer(cb) {
 
     // An object telling whether each color is available or not
     let availColors = Object.fromEntries(Array(5).fill().map((_,i)=>[i,true]));
+
+    // Box frequency modifier
+    let bfm = 0;
 
     // Synchronizes the client and the server
     function sync() {
@@ -335,9 +379,13 @@ function runServer(cb) {
                         let [id,player] = p;
                         let prize = weightedChoice(
                             ...[
-                                [ 'move',        10 ],
-                                [ 'range-plus',  10 ],
-                                [ 'range-minus', 4  ]
+                                [ 'move',        10  ],
+                                [ 'range-plus',  7  ],
+                                [ 'range-minus', 3   ],
+                                [ 'life-bonus',  player.lives == player.maxLives ? 6 : 0  ],
+                                [ 'life-bonus+', 1   ],
+                                [ 'more-boxes',  0.1 ],
+                                [ 'player-mod',  6 ]
                             ].reduce((acc,v)=>(acc[0].push(v[0]),acc[1].push(v[1]),acc),[[],[]])
                         )
                         if (prize == 'move') {
@@ -351,10 +399,14 @@ function runServer(cb) {
                             }
                         }
                         if (prize == 'range-plus') {
-                            player.rangeModifier++;
+                            let amnt = weightedChoice(
+                                [ 1,  2, 3 ],
+                                [ 10, 5, 1 ]
+                            );
+                            player.rangeModifier+=amnt;
                             setTimeout(
                                 () => {
-                                    player.rangeModifier--;
+                                    player.rangeModifier-=amnt;
                                 },
                                 20000
                             );
@@ -368,11 +420,39 @@ function runServer(cb) {
                                 20000
                             );
                         }
+                        if (prize == 'life-bonus' || prize == 'life-bonus+') {
+                            if (prize == 'life-bonus+' && player.lives == player.maxLives) {
+                                player.maxLives++;
+                            }
+                            player.lives = Math.min(player.maxLives,player.lives+1);
+                        }
+                        if (prize == 'more-boxes') {
+                            let mod = 0.5/100;
+                            bfm += mod;
+                            setTimeout(
+                                () => {
+                                    bfm += mod;
+                                },
+                                10000
+                            )
+                        }
+                        if (prize == 'player-mod') {
+                            let mod = weightedChoice(
+                                ...Object.values(PlayerModifier).map(m=>[m,PlayerModifierAttr[m].Chance]).reduce((acc,v)=>(acc[0].push(v[0]),acc[1].push(v[1]),acc),[[],[]])
+                            );
+                            player.modifiers.add(mod);
+                            setTimeout(
+                                () => {
+                                    player.modifiers.remove(mod);
+                                },
+                                PlayerModifierAttr[mod].Duration
+                            )
+                        }
                         objects = objects.filter(o=>o!=obj);
                     }
                 }
             }
-            if (Math.random() < 0.1/100) {
+            if (Math.random() < 0.1/100 + bfm) {
                 while (true) {
                     let p = [Math.floor(Math.random()*mapSize[0]),Math.floor(Math.random()*mapSize[1])];
                     let pi = p[0] + p[1]*mapSize[0];
@@ -386,6 +466,9 @@ function runServer(cb) {
         },
         10
     );
+
+    process.stdin.unref();
+    process.stdin.setRawMode(false);
 }
 
 function runClient( addr, cb=()=>null ) {
@@ -409,7 +492,7 @@ function runClient( addr, cb=()=>null ) {
     sin.setRawMode(true);
     process.on('exit',()=>{sin.setRawMode(orm);render(true)});
 
-    function render(final=false) { if (!mapSize[0] || !mapSize[1]) return;
+    function render(final=false) { if (!mapSize[0] || !mapSize[1]) return; // prevents rendering the map if it hasn't been loaded yet
         let renderCell = i => {
             let s = '';
             if (objects.some(o=>o.ipos(level())==i&&o.type==ObjType.BOMB)) s += '\x1b[41m';
@@ -429,7 +512,7 @@ function runClient( addr, cb=()=>null ) {
         }
         let thisPlayer = players.find(p=>p.inventory);
         sout.write(
-            `╔` + '═'.repeat(mapSize[0]) + '╗\n' + Array(mapSize[1]).fill().map((_,y)=>'║'+Array(mapSize[0]).fill().map((_,x)=>renderCell(x+y*mapSize[0])).join('')+'║').join('\n') +  '\n╚' + '═'.repeat(mapSize[0]) + `╝\n` + (thisPlayer?`\x1b[K${'#'.repeat(Math.max(0,thisPlayer.range+Math.min(0,thisPlayer.rangeModifier)))}\x1b[31m${'#'.repeat(Math.max(0,-thisPlayer.rangeModifier))}\x1b[33m${'#'.repeat(Math.max(0,thisPlayer.rangeModifier))}\x1b[m`:`\n`) + `${thisPlayer?`\x1b[31m${'♥'.repeat(thisPlayer.lives)}\x1b[90m${'♥'.repeat(thisPlayer.maxLives-thisPlayer.lives)}`:'\x1b[91mDEAD'}\x1b[m\n^  \n$  \nù  \n*  \n` +(final?'':`\x1b[${mapSize[1]+8}A\x1b[G`)
+            `╔` + '═'.repeat(mapSize[0]) + '╗\n' + Array(mapSize[1]).fill().map((_,y)=>'\x1b[K║'+Array(mapSize[0]).fill().map((_,x)=>renderCell(x+y*mapSize[0])).join('')+'║').join('\n') +  '\n\x1b[K╚' + '═'.repeat(mapSize[0]) + `╝\n` + (thisPlayer?`\x1b[K${thisPlayer.modifiers.map(m=>((PlayerModifierAttr[m]??{}).Render??'\x1b[90m?\x1b[m')+'\x1b[m').join(' ')}\n`:'\x1b[K\n') + (thisPlayer?`\x1b[31m\x1b[K${'#'.repeat(Math.max(0,thisPlayer.range+Math.min(0,thisPlayer.rangeModifier)))}\x1b[90m${'.'.repeat(Math.max(0,-thisPlayer.rangeModifier))}\x1b[33m${'#'.repeat(Math.max(0,thisPlayer.rangeModifier))}\x1b[m\n`:`\x1b[K\n`) + `\x1b[K${thisPlayer?`\x1b[31m${'♥'.repeat(thisPlayer.lives)}\x1b[90m${'♥'.repeat(thisPlayer.maxLives-thisPlayer.lives)}`:'\x1b[91mDEAD'}\x1b[m\n\x1b[K^  \n\x1b[K$  \n\x1b[Kù  \n\x1b[K*  \n` +(final?'':`\x1b[${mapSize[1]+9}A\x1b[G`)
         );
     }
 
