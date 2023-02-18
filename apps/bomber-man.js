@@ -543,7 +543,7 @@ function runClient( addr, cb=()=>null ) {
 
     function render(final=false) { if (!mapSize[0] || !mapSize[1]) return; // prevents rendering the map if it hasn't been loaded yet
         let renderCell = i => {
-            let s = '\x1b[40m\x1b[49;5;16m';
+            let s = '\x1b[40m';
             if (objects.some(o=>o.ipos(level())==i&&o.type==ObjType.BOMB)) s += '\x1b[41m';
             if (objects.some(o=>o.ipos(level())==i&&o.type==ObjType.FIRE)) return s + '\x1b[91m▒\x1b[m';
             if (objects.some(o=>o.ipos(level())==i&&o.type==ObjType.MYSTERY_BOX)) return s + '\x1b[33m?\x1b[m';
