@@ -93,6 +93,18 @@ function runServer(cb) {
         1000
     );
 
+    const sin  = process.stdin;
+    const getch = () => new Promise(r=>sin.once('data',r));
+    sin.setRawMode(true);
+    process.on('exit',()=>{sin.setRawMode(false);});
+    ;(async()=>{
+        while (true) {
+            let k = await getch();
+            if (k == '\x03') break;
+        }
+        process.exit();
+    })();
+
 }
 
 function runClient( addr, cb=()=>null ) {

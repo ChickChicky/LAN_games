@@ -514,8 +514,17 @@ function runServer(cb) {
         10
     );
 
-    process.stdin.unref();
-    process.stdin.setRawMode(false);
+    const sin  = process.stdin;
+    const getch = () => new Promise(r=>sin.once('data',r));
+    sin.setRawMode(true);
+    process.on('exit',()=>{sin.setRawMode(false);});
+    ;(async()=>{
+        while (true) {
+            let k = await getch();
+            if (k == '\x03') break;
+        }
+        process.exit();
+    })();
 }
 
 function runClient( addr, cb=()=>null ) {
@@ -603,7 +612,7 @@ function runClient( addr, cb=()=>null ) {
             if (k == '\x1b[B') move(Direction.DOWN);
             if (k == '\x1b[C') move(Direction.RIGHT);
             if (k == '\x1b[D') move(Direction.LEFT);
-            if (k == '\r')     dropBomb();
+            if (k == ' ')      dropBomb();
             if (k == '\x03') break;
         }
     
